@@ -2,6 +2,7 @@
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Utils88mph} from "./utils/Utils88mph.sol";
 import {AirswapUtils} from "./utils/AirswapUtils.sol";
 import {RollOverBase} from "./utils/RollOverBase.sol";
@@ -18,7 +19,7 @@ import {IOToken} from "./interfaces/IOToken.sol";
 
 import "hardhat/console.sol";
 
-contract StructuredProduct is IAction, Utils88mph, AirswapUtils, RollOverBase, GammaUtils {
+contract StructuredProduct is IAction, OwnableUpgradeable, Utils88mph, AirswapUtils, RollOverBase, GammaUtils {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
@@ -94,7 +95,7 @@ contract StructuredProduct is IAction, Utils88mph, AirswapUtils, RollOverBase, G
 
       _initRollOverBase(whitelist);
       __Ownable_init();
-      
+
       _openGammaVault(_vaultType);
     }
 
@@ -211,10 +212,13 @@ contract StructuredProduct is IAction, Utils88mph, AirswapUtils, RollOverBase, G
         require (_otoken != address(0));
         return controller.getPayout(_otoken, IERC20(_otoken).balanceOf(address(this))) > 0;
     }
-
+    
+    /**
+     * @notice purchase oTokens via airswap
+     */
     function longViaAirSwap(
         SwapTypes.Order[] memory _order
-    ) external {
+    ) external onlyOwner onlyActivated{
         require(position == Position.Long);
         _tradeAirSwapOTC(_order);
     }
@@ -230,7 +234,7 @@ contract StructuredProduct is IAction, Utils88mph, AirswapUtils, RollOverBase, G
         uint256[] memory _collateralAmount,
         uint256[] memory _otokenAmount,
         SwapTypes.Order[] memory _order
-    ) external {
+    ) external onlyOwner onlyActivated{
         require(position == Position.Short, "Invalid positon");
 
         for(uint i = 0; i < _order.length; i++){
@@ -259,7 +263,7 @@ contract StructuredProduct is IAction, Utils88mph, AirswapUtils, RollOverBase, G
     /**
      * @notice this mints a firb and sets the position of the vault
      */
-    function mintFirb(uint256 deposit_amt, uint64 mat_timestamp, Position _position) external {
+    function mintFirb(uint256 deposit_amt, uint64 mat_timestamp, Position _position) external onlyOwner onlyActivated{
       require(_position != Position.Meh);
       require(position == Position.Meh);
       uint256 amountDepositedin88mph = _mintFirb(deposit_amt, mat_timestamp);
@@ -276,7 +280,7 @@ contract StructuredProduct is IAction, Utils88mph, AirswapUtils, RollOverBase, G
     }
 
     /**
-     * @notice Currently the owner is left to decide how to linearly withdraw and vested mph (preferably to USDC)
+     * @notice Currently the owner is left to decide how to linearly withdraw and swap vested mph (preferably to USDC)
      */
     function swapVestedMph(address _to) external {
       _withdrawAndSwapVestedMph(_to);
