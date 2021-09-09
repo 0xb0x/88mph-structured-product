@@ -47,6 +47,7 @@ contract RollOverBase is OwnableUpgradeable {
    * or re-commit it if needed during the commit phase.
    * if only one otoken is commited, then the otoken address
    * should be at slot 0 
+   * i.e [0xrr6dd6, 0x000000];
    */
   function commitOToken(address[2] memory _nextOToken) external onlyOwner {
     require(state != ActionState.Activated, "Activated");
@@ -77,14 +78,13 @@ contract RollOverBase is OwnableUpgradeable {
   }
 
   function _checkOToken(address[2] memory _nextOToken) private view {
-      require(_nextOToken[0] != address(0),"oToken is zero address")
+      require(_nextOToken[0] != address(0),"oToken is zero address");
       require(opynWhitelist.isWhitelistedOtoken(_nextOToken[0]), "!OTOKEN");
       if(_nextOToken[1] != address(0)){
         require(opynWhitelist.isWhitelistedOtoken(_nextOToken[1]), "!OTOKEN");
       }
-      for(i=0; i<_nextOToken.length(); i++){
-        customOTokenCheck(_nextOToken[i]);
-      }
+      _customOTokenCheck(_nextOToken[0]);
+      _customOTokenCheck(_nextOToken[1]);
   }
 
   /**

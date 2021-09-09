@@ -1,5 +1,21 @@
 # How it works
- 
+This project uses a slightly modified version of the [opyn perpetual vault template](https://github.com/opynfinance/perp-vault-templates).
+
+Modifications made to the opyn perp vault template allow commiting of two oTokens to allow for more complex strategy like [straddles](https://www.investopedia.com/terms/s/straddle.asp), [strangles](https://www.investopedia.com/terms/s/strangle.asp) etc.
+
+When deposits are made into the vault , the vault owner can mint a FIRB to earn fixed yield and MPH Reward which is used to mint and sell options to earn premium or purchase options which are cash settled in the event they expire ITM.
+
+This strategy basically is a principal protected note because the depositor is assured of a certain percentage of their deposits.
+
+# Status
+This project is currently a WIP and is not currently safe to use.
+
+# Todo
+- Add More Test
+Though locally tested, more integration tests needs to be carried out.
+
+- Architecture/Design
+Make the contract architecture more flexible
 
 # Advanced Sample Hardhat Project
 
