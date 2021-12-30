@@ -2,7 +2,7 @@
 pragma solidity >=0.7.2;
 pragma experimental ABIEncoderV2;
 
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
 import {GammaUtils} from "../utils/GammaUtils.sol";
 import {RollOverBase} from "../utils/RollOverBase.sol";
 
@@ -10,6 +10,11 @@ import {RollOverBase} from "../utils/RollOverBase.sol";
 import {AirswapUtils} from "../utils/AirswapUtils.sol";
 // use auction to short / long
 import {AuctionUtils} from "../utils/AuctionUtils.sol";
+// zcb
+import {ZCBVault} from "../utils/ZCBVault.sol";
+
+import {UniswapUtils} from "../utils/UniswapUtils.sol";
+
 
 import {SwapTypes} from "../libraries/SwapTypes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -25,7 +30,7 @@ import {IOToken} from "../interfaces/IOToken.sol";
  * This is an Short Action template that inherit lots of util functions to "Short" an option.
  * You can remove the function you don't need.
  */
-contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils, RollOverBase, GammaUtils {
+contract ShortAction is ZCBVault, UniswapUtils, IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils, RollOverBase, GammaUtils {
   using SafeERC20 for IERC20;
   using SafeMath for uint256;
 
@@ -35,8 +40,11 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
   /// @dev minimum profits this strategy will make in any round. Set to 1%. 
   uint256 public constant MIN_PROFITS = 100; 
 
-  /// @dev amount of assets locked in Opyn
+  /// @dev amount of assets locked in Opyn and 88mph
   uint256 public lockedAsset;
+
+  /// @dev amount of assets readily available to action before rollover
+  uint256 internal preAvailableLiquidCash;
 
   /// @dev time at which the last rollover was called
   uint256 public rolloverTime;
@@ -49,6 +57,9 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
 
   /// @dev address of opyn's oracle contract
   IOracle public oracle;
+
+  /// @dev tracks if zero coupon bond is minted by action
+  bool public isBondMinted;
 
   /** 
     * @notice constructor 
@@ -65,8 +76,16 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
     address _airswap,
     address _easyAuction,
     address _controller,
+    address _zcb_address,
+    address _mph_token,
+    uint256 minInterest,
+    uint256 _zcb_deposit_percent,
     uint256 _vaultType
   ) {
+
+    __init_vault(_zcb_address, _mph_token, minInterest, _zcb_deposit_percent);
+    require(zeroCouponBond.stablecoin() == _asset, "invalid ZCB address");
+
     vault = _vault;
     asset = _asset;
 
@@ -121,11 +140,18 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
    */
   function closePosition() external override onlyVault {
     require(canClosePosition(), "Cannot close position");
-    if (_canSettleVault()) {
+    if (_canSettleVault() && !bondReedemable()) {
       _settleGammaVault();
+      lockedAsset = assetDeposited;
+
     }
+    if (_canSettleVault() && bondReedemable()) {
+      _settleGammaVault();
+      lockedAsset = 0;
+    }
+
     _setActionIdle();
-    lockedAsset = 0;
+    isBondMinted = false;
   }
 
   /**
@@ -137,8 +163,25 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
    * and call rollover again. 
    */
   function rolloverPosition() external override onlyVault {
+    require(!bondReedemable());
+
+    uint256 amtWithdrawn = _swap(asset, MPH_TOKEN , _withdrawVestedMPH());
+    preAvailableLiquidCash = preAvailableLiquidCash.add(amtWithdrawn);
+
     _rollOverNextOTokenAndActivate(); // this function can only be called when the action is `Committed`
     rolloverTime = block.timestamp;
+
+  }
+
+  function mintZCB() external onlyOwner onlyActivated {
+    require(!isBondMinted);
+    uint256 amount = IERC20(asset).balanceOf(address(this)).sub(preAvailableLiquidCash).mul(DEPOSIT_PERCENT).div(BASE);
+
+    _mintZCB(amount);
+    isBondMinted = true;
+
+    lockedAsset = lockedAsset.add(assetDeposited);
+
   }
 
 
@@ -160,6 +203,9 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
     uint256 _minFundingThreshold,
     bool _isAtomicClosureAllowed
   ) external onlyOwner onlyActivated {
+
+    require(!bondReedemable());
+
     // mint otoken
     if (_collateralAmount > 0 && _otokenToMint > 0) {
       lockedAsset = lockedAsset.add(_collateralAmount);
@@ -194,6 +240,9 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
     bytes32[] memory _prevSellOrders,
     bytes calldata _allowListCallData
   ) external onlyOwner onlyActivated {
+
+    require(!bondReedemable());
+
     // mint token
     if (_collateralAmount > 0 && _otokenToMint > 0) {
       lockedAsset = lockedAsset.add(_collateralAmount);
@@ -214,6 +263,9 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
     uint256 _otokenAmount,
     SwapTypes.Order memory _order
   ) external onlyOwner onlyActivated {
+
+    require(!bondReedemable());
+
     require(_order.sender.wallet == address(this), "!Sender");
     require(_order.sender.token == otoken, "Can only sell otoken");
     require(_order.signer.token == asset, "Can only sell for asset");
@@ -232,9 +284,10 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
    * if the option wasn't sold, anyone can close the position and send funds back to the vault. 
    */
   function canClosePosition() public view returns (bool) {
-    if (otoken != address(0) && lockedAsset != 0) {
+    if (otoken != address(0) && lockedAsset.sub(assetDeposited) != 0) {
       return _canSettleVault();
     }
+
     return block.timestamp > rolloverTime + 1 days;
   }
 
@@ -242,7 +295,7 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
    * @notice checks if the current vault can be settled
    */
   function _canSettleVault() internal view returns (bool) {
-    if (lockedAsset != 0 && otoken != address(0)) {
+    if (lockedAsset.sub(assetDeposited) != 0 && otoken != address(0)) {
       return controller.isSettlementAllowed(otoken);
     }
 
@@ -292,5 +345,9 @@ contract ShortOToken is IAction, OwnableUpgradeable, AuctionUtils, AirswapUtils,
     // TODO: override with your filler code.
     // Checks that the token committed to expires within 15 days of commitment.
     return (block.timestamp).add(15 days) >= expiry;
+  }
+
+  function prevCashAtHand() external onlyVault {
+    preAvailableLiquidCash = IERC20(asset).balanceOf(address(this));
   }
 }

@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.7.0;
 
-import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/drafts/ERC20PermitUpgradeable.sol";
+import {ERC20PermitUpgradeable} from "@openzeppelin-upgradeable/drafts/ERC20PermitUpgradeable.sol";
 import {IWETH} from "../interfaces/IWETH.sol";
 
 /**

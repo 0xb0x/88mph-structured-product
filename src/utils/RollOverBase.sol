@@ -2,7 +2,7 @@
 pragma solidity >=0.7.2;
 pragma experimental ABIEncoderV2;
 
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
 import {IWhitelist} from "../interfaces/IWhitelist.sol";
 
 contract RollOverBase is OwnableUpgradeable {

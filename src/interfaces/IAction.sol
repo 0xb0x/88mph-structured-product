@@ -23,4 +23,6 @@ interface IAction {
    * is not ready to go into the next round.
    */
   function rolloverPosition() external;
+
+  function prevCashAtHand() external;
 }

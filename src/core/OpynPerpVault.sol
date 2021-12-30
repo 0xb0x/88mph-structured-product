@@ -2,9 +2,9 @@
 pragma solidity >=0.7.2;
 pragma experimental ABIEncoderV2;
 
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
 import {IAction} from "../interfaces/IAction.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IWETH} from "../interfaces/IWETH.sol";
@@ -417,7 +417,7 @@ contract OpynPerpVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, OwnableU
    * @notice iterrate through each action, close position and withdraw funds
    */
   function _closeAndWithdraw() internal {
-    for (uint8 i = 0; i < actions.length; i = i + 1) {
+    for (uint8 i = 0; i < actions.length; i++) {
       // 1. close position. this should revert if any position is not ready to be closed.
       IAction(actions[i]).closePosition();
 
@@ -438,13 +438,14 @@ contract OpynPerpVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, OwnableU
 
     // keep track of total percentage to make sure we're summing up to 100%
     uint256 sumPercentage;
-    for (uint8 i = 0; i < actions.length; i = i + 1) {
+    for (uint8 i = 0; i < actions.length; i++) {
       sumPercentage = sumPercentage.add(_percentages[i]);
       require(sumPercentage <= BASE, "PERCENTAGE_SUM_EXCEED_MAX");
 
       uint256 newAmount = totalBalance.mul(_percentages[i]).div(BASE);
 
       if (newAmount > 0) {
+        IAction(actions[i]).prevCashAtHand();
         IERC20(asset).safeTransfer(actions[i], newAmount);
         IAction(actions[i]).rolloverPosition();
       }
